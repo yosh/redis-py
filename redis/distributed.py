@@ -16,7 +16,7 @@ class HashRingConnectionPool(ConnectionPool):
             weight: (defaults to 1)
         """
         super(HashRingConnectionPool, self).__init__()
-        self.clients = []
+        clients = []
         weights = {}
         for node in nodes:
             try:
@@ -32,9 +32,9 @@ class HashRingConnectionPool(ConnectionPool):
                 'errors': errors
                 })
             client = Redis(**params)
-            self.clients.append(client)
+            clients.append(client)
             weights[client] = weight
-        self.hash_ring = HashRing(self.clients, weights)
+        self.hash_ring = HashRing(clients, weights)
 
     def get_all_clients(self):
         return self.hash_ring.nodes
