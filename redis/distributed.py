@@ -1,7 +1,11 @@
 import random
+import re
 from redis.exceptions import UnsafeMultiNodeCommandError
 from redis.client import Connection, ConnectionPool, Redis
 from redis.hash_ring import HashRing
+
+# regex used to look for shard hints in a key name
+KEY_TOKEN_RE = re.compile(ur'\{([^\}]+)\}')
 
 class HashRingConnectionPool(ConnectionPool):
     def __init__(self, nodes, socket_timeout=None,
@@ -41,6 +45,9 @@ class HashRingConnectionPool(ConnectionPool):
 
     def get_client_for_key(self, key):
         "Return the client that ``key`` should be found on"
+        match = KEY_TOKEN_RE.search(key)
+        if match:
+            key = match.group(1)
         return self.hash_ring.get_node(key)
 
     def get_client_map(self, keys):
@@ -50,7 +57,7 @@ class HashRingConnectionPool(ConnectionPool):
         """
         mapping = {}
         for key in keys:
-            mapping.setdefault(self.hash_ring.get_node(key), []).append(key)
+            mapping.setdefault(self.get_client_for_key(key), []).append(key)
         return mapping
 
 class DistributedRedis(Redis):
