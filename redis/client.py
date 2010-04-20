@@ -17,12 +17,18 @@ class ConnectionPool(threading.local):
         "Create a unique key for the specified host, port and db"
         return '%s:%s:%s' % (host, port, db)
 
+    def add_connection(self, conn):
+        "Adds a connection to the pool"
+        key = self.make_connection_key(conn.host, conn.port, conn.db)
+        self.connections[key] = conn
+
     def get_connection(self, host, port, db, password, socket_timeout):
         "Return a specific connection for the specified host, port and db"
         key = self.make_connection_key(host, port, db)
         if key not in self.connections:
-            self.connections[key] = Connection(
-                host, port, db, password, socket_timeout)
+            self.add_connection(
+                Connection(host, port, db, password, socket_timeout)
+                )
         return self.connections[key]
 
     def get_all_connections(self):
@@ -35,7 +41,10 @@ class Connection(object):
     def __init__(self, host='localhost', port=6379, db=0, password=None,
                  socket_timeout=None):
         self.host = host
-        self.port = port
+        try:
+            self.port = int(port)
+        except ValueError:
+            raise ConnectionError("'port' must be a number")
         self.db = db
         self.password = password
         self.socket_timeout = socket_timeout
@@ -239,7 +248,8 @@ class Redis(threading.local):
         self.errors = errors
         self.connection = None
         self.subscribed = False
-        self.connection_pool = connection_pool and connection_pool or ConnectionPool()
+        self.connection_pool = connection_pool and \
+            connection_pool or ConnectionPool()
         self.select(db, host, port, password, socket_timeout)
 
     #### Legacty accessors of connection information ####
@@ -254,6 +264,10 @@ class Redis(threading.local):
     def _get_db(self):
         return self.connection.db
     db = property(_get_db)
+
+    def __str__(self):
+        "Used for consistent hashing"
+        return '%s:%s:%s' % (self.host, self.port, self.db)
 
     def pipeline(self, transaction=True):
         """
@@ -291,16 +305,20 @@ class Redis(threading.local):
 
     def execute_command(self, *args, **options):
         "Sends the command to the redis server and returns it's response"
+        return self._execute_command(
+            args[0],
+            self.format_command(*args),
+            **options
+            )
+
+    def format_command(self, *args):
+        "Use the binary-safe multi-bulk protocol to format the command"
         cmd_count = len(args)
         cmds = []
         for i in args:
             enc_value = self.encode(i)
             cmds.append('$%s\r\n%s\r\n' % (len(enc_value), enc_value))
-        return self._execute_command(
-            args[0],
-            '*%s\r\n%s' % (cmd_count, ''.join(cmds)),
-            **options
-            )
+        return '*%s\r\n%s' % (cmd_count, ''.join(cmds))
 
     def _parse_response(self, command_name, catch_errors):
         conn = self.connection
