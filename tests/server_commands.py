@@ -1,12 +1,17 @@
 import redis
 import unittest
 import datetime
+import threading
+import time
 from distutils.version import StrictVersion
 
 class ServerCommandsTestCase(unittest.TestCase):
 
+    def get_client(self):
+        return redis.Redis(host='localhost', port=6379, db=9)
+
     def setUp(self):
-        self.client = redis.Redis(host='localhost', port=6379, db=9)
+        self.client = self.get_client()
         self.client.flushdb()
 
     def tearDown(self):
@@ -606,6 +611,33 @@ class ServerCommandsTestCase(unittest.TestCase):
         self.assertEquals(self.client.zscore('a', 'a2'), 3.0)
         self.assertEquals(self.client.zscore('a', 'a3'), 8.0)
 
+    def test_zinter(self):
+        self.make_zset('a', {'a1': 1, 'a2': 1, 'a3': 1})
+        self.make_zset('b', {'a1': 2, 'a3': 2, 'a4': 2})
+        self.make_zset('c', {'a1': 6, 'a3': 5, 'a4': 4})
+
+        # sum, no weight
+        self.assert_(self.client.zinter('z', ['a', 'b', 'c']))
+        self.assertEquals(
+            self.client.zrange('z', 0, -1, withscores=True),
+            [('a3', 8), ('a1', 9)]
+            )
+
+        # max, no weight
+        self.assert_(self.client.zinter('z', ['a', 'b', 'c'], aggregate='MAX'))
+        self.assertEquals(
+            self.client.zrange('z', 0, -1, withscores=True),
+            [('a3', 5), ('a1', 6)]
+            )
+
+        # with weight
+        self.assert_(self.client.zinter('z', {'a': 1, 'b': 2, 'c': 3}))
+        self.assertEquals(
+            self.client.zrange('z', 0, -1, withscores=True),
+            [('a3', 20), ('a1', 23)]
+            )
+        
+
     def test_zrange(self):
         # key is not a zset
         self.client['a'] = 'a'
@@ -718,6 +750,33 @@ class ServerCommandsTestCase(unittest.TestCase):
         self.assertEquals(self.client.zscore('a', 'a2'), 2.0)
         # test a non-existant member
         self.assertEquals(self.client.zscore('a', 'a4'), None)
+
+    def test_zunion(self):
+        self.make_zset('a', {'a1': 1, 'a2': 1, 'a3': 1})
+        self.make_zset('b', {'a1': 2, 'a3': 2, 'a4': 2})
+        self.make_zset('c', {'a1': 6, 'a4': 5, 'a5': 4})
+        
+        # sum, no weight
+        self.assert_(self.client.zunion('z', ['a', 'b', 'c']))
+        self.assertEquals(
+            self.client.zrange('z', 0, -1, withscores=True),
+            [('a2', 1), ('a3', 3), ('a5', 4), ('a4', 7), ('a1', 9)]
+            )
+
+        # max, no weight
+        self.assert_(self.client.zunion('z', ['a', 'b', 'c'], aggregate='MAX'))
+        self.assertEquals(
+            self.client.zrange('z', 0, -1, withscores=True),
+            [('a2', 1), ('a3', 2), ('a5', 4), ('a4', 5), ('a1', 6)]
+            )
+
+        # with weight
+        self.assert_(self.client.zunion('z', {'a': 1, 'b': 2, 'c': 3}))
+        self.assertEquals(
+            self.client.zrange('z', 0, -1, withscores=True),
+            [('a2', 1), ('a3', 5), ('a5', 12), ('a4', 19), ('a1', 23)]
+            )
+
 
     # HASHES
     def make_hash(self, key, d):
@@ -940,6 +999,50 @@ class ServerCommandsTestCase(unittest.TestCase):
         self.assertEquals(self.client.lrange('sorted', 0, 10),
             ['vodka', 'milk', 'gin', 'apple juice'])
 
+    # PUBSUB
+    def test_pubsub(self):
+        # create a new client to not polute the existing one
+        r = self.get_client()
+        channels = ('a1', 'a2', 'a3')
+        for c in channels:
+            r.subscribe(c)
+        channels_to_publish_to = channels + ('a4',)
+        messages_per_channel = 4
+        def publish():
+            for i in range(messages_per_channel):
+                for c in channels_to_publish_to:
+                    self.client.publish(c, 'a message')
+                    time.sleep(0.01)
+        t = threading.Thread(target=publish)
+        messages = []
+        # should receive a message for each subscribe command
+        # plus a message for each iteration of the loop * num channels
+        num_messages_to_expect = len(channels) + \
+            (messages_per_channel*len(channels))
+        thread_started = False
+        for msg in r.listen():
+            if not thread_started:
+                # start the thread delayed so that we are intermingling
+                # publish commands with pulling messsages off the socket
+                # with subscribe
+                thread_started = True
+                t.start()
+            messages.append(msg)
+            if len(messages) == num_messages_to_expect:
+                break
+        sent_types, sent_channels = {}, {}
+        for msg_type, channel, _ in messages:
+            sent_types.setdefault(msg_type, 0)
+            sent_types[msg_type] += 1
+            if msg_type == 'message':
+                sent_channels.setdefault(channel, 0)
+                sent_channels[channel] += 1
+        for channel in channels:
+            self.assertEquals(sent_channels[channel], messages_per_channel)
+            self.assert_(channel in channels)
+        self.assertEquals(sent_types['subscribe'], len(channels))
+        self.assertEquals(sent_types['message'],
+            len(channels) * messages_per_channel)
 
     ## BINARY SAFE
     # TODO add more tests

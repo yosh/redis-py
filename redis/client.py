@@ -914,6 +914,14 @@ class Redis(threading.local):
         "Increment the score of ``value`` in sorted set ``name`` by ``amount``"
         return self.execute_command('ZINCRBY', name, amount, value)
 
+    def zinter(self, dest, keys, aggregate=None):
+        """
+        Intersect multiple sorted sets specified by ``keys`` into
+        a new sorted set, ``dest``. Scores in the destination will be
+        aggregated based on the ``aggregate``, or SUM if none is provided.
+        """
+        return self._zaggregate('ZINTER', dest, keys, aggregate)
+
     def zrange(self, name, start, end, desc=False, withscores=False):
         """
         Return a range of values from sorted set ``name`` between
@@ -998,6 +1006,30 @@ class Redis(threading.local):
         "Return the score of element ``value`` in sorted set ``name``"
         return self.execute_command('ZSCORE', name, value)
 
+    def zunion(self, dest, keys, aggregate=None):
+        """
+        Union multiple sorted sets specified by ``keys`` into
+        a new sorted set, ``dest``. Scores in the destination will be
+        aggregated based on the ``aggregate``, or SUM if none is provided.
+        """
+        return self._zaggregate('ZUNION', dest, keys, aggregate)
+
+    def _zaggregate(self, command, dest, keys, aggregate=None):
+        pieces = [command, dest, len(keys)]
+        if isinstance(keys, dict):
+            items = keys.items()
+            keys = [i[0] for i in items]
+            weights = [i[1] for i in items]
+        else:
+            weights = None
+        pieces.extend(keys)
+        if weights:
+            pieces.append('WEIGHTS')
+            pieces.extend(weights)
+        if aggregate:
+            pieces.append('AGGREGATE')
+            pieces.append(aggregate)
+        return self.execute_command(*pieces)
 
     #### HASH COMMANDS ####
     def hdel(self, name, key):
@@ -1035,11 +1067,14 @@ class Redis(threading.local):
         """
         return self.execute_command('HSET', name, key, value)
 
-    def hmset(self, key, mapping):
-        "Sets each key in the ``mapping`` dict to its corresponding value"
+    def hmset(self, name, mapping):
+        """
+        Sets each key in the ``mapping`` dict to its corresponding value
+        in the hash ``name``
+        """
         items = []
         [items.extend(pair) for pair in mapping.iteritems()]
-        return self.execute_command('HMSET', key, *items)
+        return self.execute_command('HMSET', name, *items)
 
     def hmget(self, name, keys):
         "Returns a list of values ordered identically to ``keys``"
@@ -1051,6 +1086,25 @@ class Redis(threading.local):
 
 
     # channels
+    def psubscribe(self, patterns):
+        "Subscribe to all channels matching any pattern in ``patterns``"
+        if isinstance(patterns, basestring):
+            patterns = [patterns]
+        response = self.execute_command('PSUBSCRIBE', *patterns)
+        # this is *after* the SUBSCRIBE in order to allow for lazy and broken
+        # connections that need to issue AUTH and SELECT commands
+        self.subscribed = True
+        return response
+
+    def punsubscribe(self, patterns=[]):
+        """
+        Unsubscribe from any channel matching any pattern in ``patterns``.
+        If empty, unsubscribe from all channels.
+        """
+        if isinstance(patterns, basestring):
+            patterns = [patterns]
+        return self.execute_command('PUNSUBSCRIBE', *patterns)
+
     def subscribe(self, channels):
         "Subscribe to ``channels``, waiting for messages to be published"
         if isinstance(channels, basestring):
@@ -1062,7 +1116,10 @@ class Redis(threading.local):
         return response
 
     def unsubscribe(self, channels=[]):
-        "Unsubscribe to ``channels``. If empty, unsubscribe from all channels"
+        """
+        Unsubscribe from ``channels``. If empty, unsubscribe
+        from all channels
+        """
         if isinstance(channels, basestring):
             channels = [channels]
         return self.execute_command('UNSUBSCRIBE', *channels)
@@ -1152,7 +1209,7 @@ class Pipeline(Redis):
         response = self.parse_response('_', catch_errors=True)
         if len(response) != len(commands):
             raise ResponseError("Wrong number of response items from "
-                "pipline execution")
+                "pipeline execution")
         # Run any callbacks for the commands run in the pipeline
         data = []
         for r, cmd in zip(response, commands):
