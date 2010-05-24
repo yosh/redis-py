@@ -1,0 +1,22 @@
+Source: python-redis
+Section: python
+Priority: optional
+Maintainer: Chris Lamb <lamby@debian.org>
+Build-Depends: debhelper (>= 7)
+Build-Depends-Indep: python-support
+Standards-Version: 3.8.4
+Vcs-Git: git://git.chris-lamb.co.uk/debian/pkg-python-redis.git
+Vcs-Browser: http://git.chris-lamb.co.uk/?p=debian/pkg-python-redis.git
+Homepage: http://github.com/andymccurdy/redis-py/
+
+Package: python-redis
+Architecture: all
+Depends: ${misc:Depends}, ${python:Depends}
+Description: Persistent key-value database with network interface (Python library)
+ Redis is a key-value database in a similar vein to memcache but the dataset
+ is non-volatile. Redis additionally provides native support for atomically
+ manipulating and querying data structures such as lists and sets.
+ .
+ The dataset is stored entirely in memory and periodically flushed to disk.
+ .
+ This package contains Python bindings to Redis.

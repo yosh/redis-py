@@ -1,0 +1,25 @@
+python-redis (1.36.1+git20100523000000-1) unstable; urgency=low
+
+  * New upstream snapshot.
+
+ -- Manish Singh <yosh@gimp.org>  Sun, 23 May 2010 17:43:31 -0700
+
+python-redis (1.34.1+git20100401235334-1) unstable; urgency=low
+
+  * New upstream snapshot.
+
+ -- Chris Lamb <lamby@debian.org>  Tue, 06 Apr 2010 17:01:09 +0100
+
+python-redis (1.34.1-1) unstable; urgency=low
+
+  * New upstream release (Closes: #571563)
+  * Bump Standards-Version to 3.8.4.
+
+ -- Chris Lamb <lamby@debian.org>  Fri, 26 Feb 2010 02:07:44 +0000
+
+python-redis (0.6.1-1) unstable; urgency=low
+
+  * Initial release.
+    - Source package split from "redis" source package.
+
+ -- Chris Lamb <lamby@debian.org>  Wed, 13 Jan 2010 23:54:06 +0000
